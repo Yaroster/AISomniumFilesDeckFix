@@ -20,6 +20,7 @@ namespace AISomniumFilesFix
         public static ConfigEntry<bool> Fullscreen;
         public static ConfigEntry<bool> UIFix;
         public static ConfigEntry<bool> SomniumFix;
+        private const float DefaultAspectRatio = 16f / 9f;
 
         private void Awake()
         {
@@ -51,7 +52,7 @@ namespace AISomniumFilesFix
             UIFix = Config.Bind("Fixes",
                                 "UIFix",
                                 true,
-                                "Fixes UI issues at ultrawide/wider.");
+                                "Fixes UI issues at non-16:9 resolutions.");
 
             SomniumFix = Config.Bind("Fixes",
                                 "SomniumFix",
@@ -60,19 +61,71 @@ namespace AISomniumFilesFix
 
             SceneManager.sceneLoaded += OnSceneLoaded;
 
-            float NewAspectRatio = (float)AISFFix.DesiredResolutionX.Value / AISFFix.DesiredResolutionY.Value;
-
             if (CustomResolution.Value) { Harmony.CreateAndPatchAll(typeof(CustomResolution)); }
-            if (NewAspectRatio > 1.8 && UIFix.Value && CustomResolution.Value) { Harmony.CreateAndPatchAll(typeof(UIFix)); }
+            if (ShouldApplyUIFix()) { Harmony.CreateAndPatchAll(typeof(UIFix)); }
 
             Screen.SetResolution(DesiredResolutionX.Value, DesiredResolutionY.Value, Fullscreen.Value);
         }
 
+        public static float GetNewAspectRatio()
+        {
+            if (DesiredResolutionX.Value <= 0 || DesiredResolutionY.Value <= 0)
+            {
+                return DefaultAspectRatio;
+            }
+
+            return (float)DesiredResolutionX.Value / DesiredResolutionY.Value;
+        }
+
+        public static bool IsNonDefaultAspect()
+        {
+            return Mathf.Abs(GetNewAspectRatio() - DefaultAspectRatio) > 0.01f;
+        }
+
+        public static bool ShouldApplyUIFix()
+        {
+            return UIFix.Value && CustomResolution.Value && IsNonDefaultAspect();
+        }
+
+        public static bool IsWiderThanDefaultAspect()
+        {
+            return GetNewAspectRatio() > DefaultAspectRatio;
+        }
+
+        public static Vector3 GetUIScale()
+        {
+            float newAspect = GetNewAspectRatio();
+            float widthMultiplier = newAspect / DefaultAspectRatio;
+            float heightMultiplier = DefaultAspectRatio / newAspect;
+
+            if (newAspect > DefaultAspectRatio)
+            {
+                return new Vector3(widthMultiplier, 1f, 1f);
+            }
+
+            if (newAspect < DefaultAspectRatio)
+            {
+                return new Vector3(1f, heightMultiplier, 1f);
+            }
+
+            return Vector3.one;
+        }
+
+        private static void SafeScale(string path, Vector3 scale)
+        {
+            GameObject gameObject = GameObject.Find(path);
+            if (gameObject == null)
+            {
+                AISFFix.Log.LogWarning($"Unable to find UI object to scale: {path}");
+                return;
+            }
+
+            gameObject.transform.localScale = scale;
+        }
+
         private void OnSceneLoaded(Scene arg0, LoadSceneMode arg1) // Run the fix every time a scene is loaded
         {
-            float DefaultAspectRatio = (float)1920 / 1080;
-            float NewAspectRatio = (float)AISFFix.DesiredResolutionX.Value / AISFFix.DesiredResolutionY.Value;
-            float AspectMultiplier = NewAspectRatio / DefaultAspectRatio;
+            Vector3 uiScale = GetUIScale();
 
             Scene scene = SceneManager.GetActiveScene();
             AISFFix.Log.LogInfo($"Scene loaded = {scene.name}");
@@ -87,14 +140,11 @@ namespace AISomniumFilesFix
                     AISFFix.Log.LogInfo($"Scene = {scene.name}. Target FPS = {Application.targetFrameRate}, Vsync = {QualitySettings.vSyncCount}");
                 }
 
-                if (UIFix.Value) // Scale gameplay relevant UI to full screen
+                if (ShouldApplyUIFix()) // Scale gameplay relevant UI to full screen
                 {
-                    GameObject RightWindow2 = GameObject.Find("$Root/Canvas/ScreenScaler/RightWindow");
-                    RightWindow2.transform.localScale = new Vector3(1 * AspectMultiplier, 1f, 1f);
-                    GameObject Letterbox2 = GameObject.Find("$Root/Canvas (1)/ScreenScaler/UIOff5");
-                    Letterbox2.transform.localScale = new Vector3(1 * AspectMultiplier, 1f, 1f);
-                    GameObject FilterBlur2 = GameObject.Find("$Root/Canvas (1)/ScreenScaler/FilterBlur");
-                    FilterBlur2.transform.localScale = new Vector3(1 * AspectMultiplier, 1f, 1f);
+                    SafeScale("$Root/Canvas/ScreenScaler/RightWindow", uiScale);
+                    SafeScale("$Root/Canvas (1)/ScreenScaler/UIOff5", uiScale);
+                    SafeScale("$Root/Canvas (1)/ScreenScaler/FilterBlur", uiScale);
                 }
             }   
             else
@@ -110,14 +160,11 @@ namespace AISomniumFilesFix
             // Investigation
             if (scene.name == "Investigation")
             {
-                if (UIFix.Value) // Scale gameplay relevant UI to full screen
+                if (ShouldApplyUIFix()) // Scale gameplay relevant UI to full screen
                 {
-                    GameObject RightWindow1 = GameObject.Find("$Root/UICanvas/ScreenScaler/Windows/RightWindow");
-                    RightWindow1.transform.localScale = new Vector3(1 * AspectMultiplier, 1f, 1f);
-                    GameObject Letterbox1 = GameObject.Find("$Root/FrontCanvas/ScreenScaler/UIOff3");
-                    Letterbox1.transform.localScale = new Vector3(1 * AspectMultiplier, 1f, 1f);
-                    GameObject FilterBlur1 = GameObject.Find("$Root/UICanvas/ScreenScaler/FilterBlur");
-                    FilterBlur1.transform.localScale = new Vector3(1 * AspectMultiplier, 1f, 1f);
+                    SafeScale("$Root/UICanvas/ScreenScaler/Windows/RightWindow", uiScale);
+                    SafeScale("$Root/FrontCanvas/ScreenScaler/UIOff3", uiScale);
+                    SafeScale("$Root/UICanvas/ScreenScaler/FilterBlur", uiScale);
                 }
             }
         }
@@ -147,7 +194,8 @@ namespace AISomniumFilesFix
         [HarmonyPostfix]
         public static void SetScreenMatchMode(CanvasScaler __instance)
         {
-            __instance.m_ScreenMatchMode = CanvasScaler.ScreenMatchMode.Expand;
+            __instance.m_ScreenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+            __instance.m_MatchWidthOrHeight = AISFFix.IsWiderThanDefaultAspect() ? 1f : 0f;
         }
 
         // Disable RectMask2D from being enabled.
