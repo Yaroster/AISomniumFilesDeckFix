@@ -12,8 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      PLUGIN_DLL: AISomniumFilesFix.dll
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
 
     - name: Download BepInEx
       uses: robinraju/release-downloader@v1.2
@@ -22,10 +24,10 @@ jobs:
           latest: true
           fileName: "*"
 
-    - uses: actions/setup-dotnet@v1
+    - uses: actions/setup-dotnet@v4
     - run: mkdir -p ${{ github.event.repository.name }}/BepInEx/plugins
     - run: dotnet build -c Release -o build
-    - run: cp build/${{ github.event.repository.name }}.dll ${{ github.event.repository.name }}/BepInEx/plugins/${{ github.event.repository.name }}.dll
+    - run: cp build/${{ env.PLUGIN_DLL }} ${{ github.event.repository.name }}/BepInEx/plugins/${{ env.PLUGIN_DLL }}
     - run: unzip BepInEx_x64* -d ${{ github.event.repository.name }}
     - run: touch ${{ github.event.repository.name }}/EXTRACT_TO_GAME_DIRECTORY
     - run: cd ${{ github.event.repository.name }}; zip -r ../${{ github.event.repository.name }}_${{ github.event.inputs.version }}.zip ./*
